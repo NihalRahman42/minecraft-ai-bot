@@ -1,0 +1,6 @@
+node_modules/
+mc-server/world/
+mc-server/logs/
+mc-server/usercache.json
+mc-server/session.lock
+.env
