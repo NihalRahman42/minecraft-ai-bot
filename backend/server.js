@@ -33,14 +33,17 @@ bot.once('spawn', () => {
 });
 
 // ---- Apply movement every physics tick ----
+// ---- Apply movement every physics tick ----
 bot.on('physicsTick', () => {
   if (!bot.controlState) return;
 
-  bot.controlState.forward = movementState.forward > 0.2;
-  bot.controlState.back    = false;
+  // Update forward/back based on the value (positive = forward, negative = backward)
+  bot.controlState.forward = movementState.forward > 0;
+  bot.controlState.back    = movementState.forward < 0;
 
-  bot.controlState.left  = movementState.strafe < -0.2;
-  bot.controlState.right = movementState.strafe > 0.2;
+  // Update strafing (positive = right, negative = left)
+  bot.controlState.left  = movementState.strafe < 0;
+  bot.controlState.right = movementState.strafe > 0;
 
   bot.controlState.jump = movementState.jump;
 });
