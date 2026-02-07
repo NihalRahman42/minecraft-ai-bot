@@ -1,86 +1,114 @@
 const mineflayer = require('mineflayer');
-const WebSocket = require('ws'); // NEW
+const WebSocket = require('ws');
+const { pathfinder, Movements, goals: { GoalNear } } = require('mineflayer-pathfinder');
 
-// ---- Minecraft bot ----
-const bot = mineflayer.createBot({
-  host: 'localhost',
-  port: 25565,
-  username: 'Bot_Alpha'
-});
+// ---- Bot Registry ----
+// Stores active bots: { "BotName": botInstance }
+const bots = {};
 
-// ---- Movement state (shared with web) ----
-const movementState = {
-  forward: 0, // 0 → 1
-  strafe: 0,  // -1 → 1
-  jump: false
-};
-
-
-bot.once('spawn', () => {
-  console.log('Bot spawned');
-  bot.chat('/gamemode survival');
-
-  setTimeout(() => {
-    bot._client.write('abilities', {
-      flags: 0,
-      flyingSpeed: 0.05,
-      walkingSpeed: 0.1
-    });
-
-    bot.physicsEnabled = true;
-    console.log('Physics ready');
-  }, 1000);
-});
-
-// ---- Apply movement every physics tick ----
-// ---- Apply movement every physics tick ----
-bot.on('physicsTick', () => {
-  if (!bot.controlState) return;
-
-  // Update forward/back based on the value (positive = forward, negative = backward)
-  bot.controlState.forward = movementState.forward > 0;
-  bot.controlState.back    = movementState.forward < 0;
-
-  // Update strafing (positive = right, negative = left)
-  bot.controlState.left  = movementState.strafe < 0;
-  bot.controlState.right = movementState.strafe > 0;
-
-  bot.controlState.jump = movementState.jump;
-});
-
-
-// ---- WebSocket server ----
-const wss = new WebSocket.Server({
-  port: 8080,
-  host: '0.0.0.0' // LISTEN ON LAN
-});
-
+// ---- WebSocket Server ----
+const wss = new WebSocket.Server({ port: 8080, host: '0.0.0.0' });
 
 wss.on('connection', (ws) => {
-  console.log('Web client connected');
+  console.log('Client connected');
 
   ws.on('message', (data) => {
-  const msg = JSON.parse(data.toString());
-
-  if (msg.type === 'move') {
-    movementState.forward = msg.forward;
-    movementState.strafe  = msg.strafe;
-  }
-
-  if (msg.type === 'jump') {
-    movementState.jump = msg.state;
-  }
-});
-
-
-  ws.on('close', () => {
-    console.log('Web client disconnected');
-    // Safety: stop movement if client drops
-    for (const k in movementState) movementState[k] = false;
+    try {
+      const msg = JSON.parse(data.toString());
+      handleCommand(msg, ws);
+    } catch (e) {
+      console.error('Invalid JSON:', e);
+    }
   });
 });
 
-console.log('WebSocket server running on ws://0.0.0.0:8080 (LAN enabled)');
+function handleCommand(msg, ws) {
+  const { type, name } = msg;
 
-bot.on('error', console.error);
-bot.on('end', () => console.log('Bot disconnected'));
+  // 1. SPAWN COMMAND
+  if (type === 'spawn') {
+    if (bots[name]) {
+      console.log(`Bot ${name} already exists.`);
+      return;
+    }
+
+    console.log(`Spawning bot: ${name}...`);
+    const bot = mineflayer.createBot({
+      host: 'localhost',
+      port: 25565,
+      username: name
+    });
+
+    // Load plugins
+    bot.loadPlugin(pathfinder);
+
+    // Setup events
+    bot.once('spawn', () => {
+      console.log(`${name} spawned.`);
+      bot.chat('I am alive!');
+      
+      // Initialize movements
+      const defaultMove = new Movements(bot);
+      bot.pathfinder.setMovements(defaultMove);
+      
+      // Store bot instance
+      bots[name] = bot;
+    });
+
+    bot.on('end', () => {
+      console.log(`${name} disconnected.`);
+      delete bots[name];
+    });
+    
+    bot.on('error', (err) => console.log(`${name} error:`, err));
+  }
+
+  // 2. CHOP COMMAND
+  if (type === 'chop') {
+    const bot = bots[name];
+    if (!bot) {
+      console.log(`Bot ${name} not found!`);
+      return;
+    }
+    chopOneLog(bot);
+  }
+}
+
+// ---- Logic: Chop ONE Log ----
+async function chopOneLog(bot) {
+  bot.chat('Looking for a tree...');
+
+  // 1. Find wood
+  const woodBlock = bot.findBlock({
+    matching: block => block.name.includes('_log'),
+    maxDistance: 32
+  });
+
+  if (!woodBlock) {
+    bot.chat('No wood found nearby.');
+    return;
+  }
+
+  // 2. Walk to it
+  try {
+    const goal = new GoalNear(woodBlock.position.x, woodBlock.position.y, woodBlock.position.z, 1);
+    await bot.pathfinder.goto(goal);
+  } catch (err) {
+    bot.chat('Cannot reach the tree.');
+    return;
+  }
+
+  // 3. Equip Axe (if available)
+  const axe = bot.inventory.items().find(item => item.name.includes('_axe'));
+  if (axe) await bot.equip(axe, 'hand');
+
+  // 4. Chop it
+  try {
+    await bot.dig(woodBlock);
+    bot.chat('Timber! Job done.');
+  } catch (err) {
+    bot.chat('Failed to break block.');
+  }
+}
+
+console.log('Bot Manager running on ws://localhost:8080');
