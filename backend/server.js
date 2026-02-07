@@ -39,18 +39,17 @@ function handleCommand(msg, ws) {
       username: name
     });
 
-    // Load plugins
+    // Load pathfinder plugin
     bot.loadPlugin(pathfinder);
 
-    // Setup events
     bot.once('spawn', () => {
       console.log(`${name} spawned.`);
-      bot.chat('I am alive!');
+      bot.chat('Ready for orders.');
       
-      // Initialize movements
+      // Initialize pathfinder movements
       const defaultMove = new Movements(bot);
       bot.pathfinder.setMovements(defaultMove);
-      
+
       // Store bot instance
       bots[name] = bot;
     });
@@ -91,6 +90,7 @@ async function chopOneLog(bot) {
 
   // 2. Walk to it
   try {
+    // Go within 1 block
     const goal = new GoalNear(woodBlock.position.x, woodBlock.position.y, woodBlock.position.z, 1);
     await bot.pathfinder.goto(goal);
   } catch (err) {
@@ -104,11 +104,13 @@ async function chopOneLog(bot) {
 
   // 4. Chop it
   try {
+    // NOTE: bot.dig() handles the "holding" automatically.
+    // There is NO physicsTick loop here to interrupt it.
     await bot.dig(woodBlock);
-    bot.chat('Timber! Job done.');
+    bot.chat('Timber!');
   } catch (err) {
-    bot.chat('Failed to break block.');
+    bot.chat('Failed to break block: ' + err.message);
   }
 }
 
-console.log('Bot Manager running on ws://localhost:8080');
+console.log('Bot Commander running on ws://0.0.0.0:8080');
